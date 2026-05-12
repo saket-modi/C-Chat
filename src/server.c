@@ -20,7 +20,7 @@ int get_listener_fd(char* port) {
 
     // listen to port 6767 on localhost
     if (getaddrinfo(NULL, port, &hints, &res) != 0) {
-        char* err_str;
+        char err_str[80];
         sprintf(err_str, "error getting address info for port: %s on localhost!\n", port);
         perror(err_str);
         exit(EXIT_FAILURE);
@@ -37,6 +37,10 @@ int get_listener_fd(char* port) {
         perror("error starting a socket!\n");
         exit(EXIT_FAILURE);
     }
+
+    int yes = 1;
+    setsockopt(temp_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
     if (bind(temp_fd, (struct sockaddr*)p->ai_addr, p->ai_addrlen) == -1) {
         perror("error binding socket to port!\n");
         exit(EXIT_FAILURE);
@@ -58,14 +62,13 @@ void handle_clients(int listener_fd, struct pollfd* pollfds, int idx, int* curr_
         // connect only to send an error message
         int err_fd = accept(listener_fd, NULL, NULL);
         if (err_fd == -1) return;
-        char* err_str;
+        char err_str[60];
         sprintf(err_str, "Maximum number of clients (%d) reached!\n", MAX_CLIENTS);
         send(err_fd, err_str, strlen(err_str), 0);
         close(err_fd);
     }
     else {
         // connect normally
-        printf("hahahah");
         int new_fd = accept(listener_fd, NULL, NULL);
         if (new_fd == -1) return;
         pollfds[++(*curr_clients)].fd = new_fd;
@@ -73,10 +76,15 @@ void handle_clients(int listener_fd, struct pollfd* pollfds, int idx, int* curr_
     }
 }
 
+void remove_client(struct pollfd* pollfds, int idx, int* curr_clients) {
+    pollfds[idx] = pollfds[--(*curr_clients)];
+    close(pollfds[idx].fd);
+}
+
 void handle_messages(struct pollfd* pollfds, int idx, int* curr_clients) {
     if (pollfds[idx].revents & POLLHUP) {
         // connection closed
-        pollfds[idx] = pollfds[--(*curr_clients)];
+        remove_client(pollfds, idx, curr_clients);
         return;
     }
 
@@ -84,17 +92,30 @@ void handle_messages(struct pollfd* pollfds, int idx, int* curr_clients) {
     char buffer[BUFSIZ];
 
     // receive the str from the client
-    recv(target_fd, buffer, BUFSIZ, 0);
+    int bytes_recv;
+    if ((bytes_recv = recv(target_fd, buffer, BUFSIZ, 0)) == -1) {
+        printf("error receiving data from fd: %d", target_fd);
+        remove_client(pollfds, idx, curr_clients);
+        return;
+    }
+    if (bytes_recv == 0) {
+        // if the client presses enter, close the socket
+        // fixes the issue where pressing ctrl+c sending a wall of invisible chars to other clients
+        remove_client(pollfds, idx, curr_clients);
+        return;
+    }
+    buffer[bytes_recv] = '\0';
 
     for (int i = 1; i < *curr_clients + 1; i++) {
         if (i == idx) continue; // don't want to send the same message to the client twice
-        send(target_fd, buffer, strlen(buffer), 0);
+        send(pollfds[i].fd, buffer, strlen(buffer), 0);
     }
 }
 
 void handle_polls(int listener_fd, struct pollfd* pollfds, int* curr_clients) {
     for (int i = 0; i < *curr_clients + 1; i++) {
         int event_occur = pollfds[i].revents & (POLLIN | POLLHUP);
+        if (!event_occur) continue;
         if (pollfds[i].fd == listener_fd)
             handle_clients(listener_fd, pollfds, i, curr_clients);
         else
@@ -104,17 +125,15 @@ void handle_polls(int listener_fd, struct pollfd* pollfds, int* curr_clients) {
 
 int main(void) {
     int listener_fd = get_listener_fd("6767");
-    printf("%d\n", listener_fd);
+
     int current_clients = 0;
 
-    printf("%d\n", sizeof(struct pollfd));
     struct pollfd* pollfds = malloc(sizeof(struct pollfd) * (MAX_CLIENTS + 1));
     pollfds[0].fd = listener_fd;
     pollfds[0].events = POLLIN;
 
     while (1) {
         int num_events = poll(pollfds, current_clients + 1, 1000); // polls (returns) every second
-        printf("%d\n", num_events);
         if (num_events > 0) {
             handle_polls(listener_fd, pollfds, &current_clients);
         }

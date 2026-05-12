@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <poll.h>
+#include <unistd.h>
 
 int get_connection_fd(char* port) {
     struct addrinfo hints;
@@ -47,17 +48,23 @@ void handle_polls(int fd, struct pollfd* pollfds) {
         if (pollfds[0].revents == POLLHUP) exit(EXIT_FAILURE); // stdin failure
         char str[BUFSIZ];
 
-        recv(0, str, BUFSIZ - 1, 0); // receive the full message
+        // int bytes_recv = recv(0, str, BUFSIZ - 1, 0); // receive the full message
+        int bytes_recv = read(0, str, BUFSIZ - 1);
+        str[bytes_recv] = '\0';
 
-        if (send(fd, str, sizeof(str), 0) == -1) {
+        if (send(fd, str, strlen(str), 0) == -1) {
             perror("error sending message to server!\n");
             exit(EXIT_FAILURE);
         }
     } else {
-        if (pollfds[1].revents == POLLHUP) exit(EXIT_FAILURE); // server closed connection
+        if (pollfds[1].revents == POLLHUP) {
+            close(fd);
+            exit(EXIT_FAILURE); // server closed connection
+        }
         char str[BUFSIZ];
 
-        recv(fd, str, BUFSIZ, 0) > 0; // receive the full message
+        int bytes_recv = recv(fd, str, BUFSIZ, 0); // receive the full message
+        str[bytes_recv] = '\0';
 
         printf("%s\n", str);
     }
@@ -65,6 +72,7 @@ void handle_polls(int fd, struct pollfd* pollfds) {
 
 int main() {
     int fd = get_connection_fd("6767");
+    printf("cnxn established!\n");
 
     // stdin is port 0 in the terminal
     struct pollfd pollfds[2]; // stdin and connected socket
