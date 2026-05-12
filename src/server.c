@@ -7,7 +7,6 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
-#include "util.h"
 
 #define MAX_CLIENTS 10
 
@@ -66,6 +65,7 @@ void handle_clients(int listener_fd, struct pollfd* pollfds, int idx, int* curr_
     }
     else {
         // connect normally
+        printf("hahahah");
         int new_fd = accept(listener_fd, NULL, NULL);
         if (new_fd == -1) return;
         pollfds[++(*curr_clients)].fd = new_fd;
@@ -81,18 +81,14 @@ void handle_messages(struct pollfd* pollfds, int idx, int* curr_clients) {
     }
 
     int target_fd = pollfds[idx].fd;
-    int bytes_recv = 0, tot_bytes = 0;
-    Message recv_msg;
+    char buffer[BUFSIZ];
 
-    // receive the Message object
-    while ((bytes_recv = recv(target_fd, &recv_msg, sizeof(recv_msg), 0)) > 0) {
-        tot_bytes += bytes_recv;
-        if (recv_msg.len && recv_msg.len == tot_bytes) break;
-    }
+    // receive the str from the client
+    recv(target_fd, buffer, BUFSIZ, 0);
 
     for (int i = 1; i < *curr_clients + 1; i++) {
         if (i == idx) continue; // don't want to send the same message to the client twice
-        send(target_fd, &recv_msg, sizeof(recv_msg), 0);
+        send(target_fd, buffer, strlen(buffer), 0);
     }
 }
 

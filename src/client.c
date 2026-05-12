@@ -5,7 +5,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <poll.h>
-#include "util.h"
 
 int get_connection_fd(char* port) {
     struct addrinfo hints;
@@ -46,23 +45,21 @@ int get_connection_fd(char* port) {
 void handle_polls(int fd, struct pollfd* pollfds) {
     if (pollfds[0].revents & (POLLIN | POLLHUP)) { // stdin
         if (pollfds[0].revents == POLLHUP) exit(EXIT_FAILURE); // stdin failure
-        Message msg;
         char str[BUFSIZ];
 
         recv(0, str, BUFSIZ - 1, 0); // receive the full message
-        strcpy(msg.msg, str);
-        // msg.msg = str;
-        msg.len = strlen(str);
 
-        if (send(fd, &msg, sizeof(msg), 0) == -1) {
+        if (send(fd, str, sizeof(str), 0) == -1) {
             perror("error sending message to server!\n");
             exit(EXIT_FAILURE);
         }
     } else {
         if (pollfds[1].revents == POLLHUP) exit(EXIT_FAILURE); // server closed connection
-        Message msg;
-        while (recv(fd, &msg, sizeof(msg), 0) > 0); // receive the full message
-        printf("%s\n", msg.msg);
+        char str[BUFSIZ];
+
+        recv(fd, str, BUFSIZ, 0) > 0; // receive the full message
+
+        printf("%s\n", str);
     }
 }
 
